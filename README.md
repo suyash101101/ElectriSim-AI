@@ -487,8 +487,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 <div align="center">
 
-**Made with ❤️ by Suyash, Keya, Isha under Prof. Dastagiri**
-
 [![GitHub](https://img.shields.io/badge/GitHub-Repository-black?style=flat-square&logo=github)](https://github.com/your-username/electrisim-ai)
 [![Live Demo](https://img.shields.io/badge/Live-Demo-green?style=flat-square&logo=vercel)](https://electrisim-ai.vercel.app)
 
