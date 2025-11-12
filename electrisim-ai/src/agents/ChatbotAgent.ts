@@ -19,13 +19,14 @@ export class ChatbotAgent {
     query: string, 
     circuitContext?: Circuit, 
     analysisContext?: CircuitAnalysis, 
-    safetyContext?: SafetyAssessment
+    safetyContext?: SafetyAssessment,
+    chatMode: 'layman' | 'engineer' = 'engineer'
   ): Promise<AgentResponse> {
     try {
         const model = this.genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
       
-      // Build context-aware prompt
-      const prompt = this.buildPrompt(query, circuitContext, analysisContext, safetyContext);
+      // Build context-aware prompt based on mode
+      const prompt = this.buildPrompt(query, circuitContext, analysisContext, safetyContext, chatMode);
       
       const result = await model.generateContent(prompt);
       const response = result.response.text();
@@ -79,28 +80,57 @@ export class ChatbotAgent {
     query: string, 
     circuitContext?: Circuit, 
     analysisContext?: CircuitAnalysis, 
-    safetyContext?: SafetyAssessment
+    safetyContext?: SafetyAssessment,
+    chatMode: 'layman' | 'engineer' = 'engineer'
   ): string {
-    let prompt = `You are ElectriSim AI, an expert electrical safety assistant. You help users understand electrical circuits, identify safety hazards, and provide recommendations for safe electrical practices.
+    if (chatMode === 'layman') {
+      // Layman mode: No circuit context, focus on general electrical safety
+      return `You are ElectriSim AI, a friendly and helpful electrical safety advisor for homeowners and non-technical users. Your goal is to provide clear, simple, and practical electrical safety advice without using technical jargon.
+
+IMPORTANT: You do NOT have access to any circuit information. Provide general electrical safety advice only.
+
+User Question: ${query}
+
+INSTRUCTIONS:
+1. Use simple, everyday language - avoid technical terms or explain them clearly
+2. Focus on practical electrical safety tips for homeowners
+3. Provide actionable advice that anyone can follow
+4. Emphasize safety above all else
+5. If asked about circuits, explain that you provide general safety advice
+6. Be encouraging and educational
+7. Use examples from everyday life
+
+Examples of good responses:
+- "Always turn off the circuit breaker before working on electrical outlets"
+- "If you see sparks or smell burning, turn off power immediately and call an electrician"
+- "Never use electrical appliances near water"
+- "Check that your outlets have proper grounding (three-prong plugs)"
+
+Please respond to the user's question in a friendly, helpful manner:`;
+    }
+
+    // Engineer mode: Full technical context
+    let prompt = `You are ElectriSim AI, an expert electrical engineering assistant. You help engineers and technicians understand electrical circuits, identify safety hazards, and provide detailed technical recommendations.
 
 User Question: ${query}
 
 `;
 
-    // Add circuit context
-    if (circuitContext) {
+    // Add circuit context (only in engineer mode)
+    if (circuitContext && chatMode === 'engineer') {
       prompt += `CURRENT CIRCUIT CONTEXT:
 - Circuit Name: ${circuitContext.name}
 - Total Components: ${circuitContext.components.length}
 - Component Types: ${circuitContext.components.map(c => c.type).join(', ')}
 - Source Voltage: ${circuitContext.metadata.voltage}V
+- Phase: ${circuitContext.metadata.phase || 'single'}-phase
 - Description: ${circuitContext.metadata.description || 'No description'}
 
 `;
     }
 
-    // Add analysis context
-    if (analysisContext) {
+    // Add analysis context (only in engineer mode)
+    if (analysisContext && chatMode === 'engineer') {
       prompt += `CIRCUIT ANALYSIS:
 - Total Power: ${analysisContext.totalPower.toFixed(2)}W
 - Efficiency: ${analysisContext.efficiency.toFixed(1)}%
@@ -110,8 +140,8 @@ User Question: ${query}
 `;
     }
 
-    // Add safety context
-    if (safetyContext) {
+    // Add safety context (only in engineer mode)
+    if (safetyContext && chatMode === 'engineer') {
       prompt += `SAFETY ASSESSMENT:
 - Safety Score: ${safetyContext.safetyScore}/100
 - Risk Level: ${safetyContext.riskLevel.toUpperCase()}
@@ -132,15 +162,17 @@ ${this.conversationHistory.slice(-4).map(msg =>
     }
 
     prompt += `INSTRUCTIONS:
-1. Provide clear, accurate electrical safety advice
-2. Reference specific components or values when relevant
+1. Provide clear, accurate electrical engineering advice
+2. Reference specific components, values, and measurements when relevant
 3. Always prioritize safety in your recommendations
-4. Use technical terms appropriately but explain complex concepts
-5. If there are safety hazards, emphasize them clearly
-6. Provide actionable recommendations
-7. Be encouraging and educational
+4. Use proper technical terminology (MCB, RCCB, GFCI, AFCI, etc.)
+5. Provide detailed analysis and calculations when appropriate
+6. If there are safety hazards, emphasize them clearly with technical details
+7. Provide actionable recommendations with specific component ratings
+8. Reference electrical codes and standards (NEC, OSHA, NFPA) when relevant
+9. Be thorough and professional
 
-Please respond to the user's question:`;
+Please respond to the user's question with detailed technical information:`;
 
     return prompt;
   }

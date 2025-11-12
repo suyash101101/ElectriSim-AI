@@ -163,7 +163,7 @@ export const SafetyPanel: React.FC<SafetyPanelProps> = ({
         )}
 
         {/* Compliance */}
-        {safety && (
+        {safety && safety.compliance.length > 0 && (
           <div className="bg-white rounded-xl border border-gray-200 p-6">
             <div className="flex items-center space-x-3 mb-4">
               <CheckCircle className="h-5 w-5 text-green-600" />
@@ -171,12 +171,23 @@ export const SafetyPanel: React.FC<SafetyPanelProps> = ({
             </div>
             
             <div className="space-y-3">
-              {['NEC', 'OSHA', 'NFPA'].map((standard) => (
-                <div key={standard} className="flex items-center justify-between p-3 bg-green-50 rounded-lg">
-                  <span className="font-medium text-green-900">{standard}</span>
-                  <CheckCircle className="h-5 w-5 text-green-600" />
-                </div>
-              ))}
+              {safety.compliance.map(check => {
+                const statusColor = check.status === 'compliant'
+                  ? 'bg-green-50 text-green-800 border-green-200'
+                  : check.status === 'warning'
+                    ? 'bg-yellow-50 text-yellow-800 border-yellow-200'
+                    : 'bg-red-50 text-red-800 border-red-200';
+                const statusLabel = check.status.replace(/_/g, ' ').toUpperCase();
+                return (
+                  <div key={check.standard} className={`p-3 border rounded-lg flex flex-col space-y-1 ${statusColor}`}>
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium">{check.standard}</span>
+                      <span className="text-xs font-semibold tracking-wide">{statusLabel}</span>
+                    </div>
+                    <p className="text-xs opacity-80">{check.description}</p>
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
@@ -190,7 +201,7 @@ export const SafetyPanel: React.FC<SafetyPanelProps> = ({
             </div>
             
             <div className="space-y-3">
-              {safety.recommendations.map((recommendation, index) => (
+              {[...new Set(safety.recommendations)].map((recommendation, index) => (
                 <div key={index} className="flex items-start space-x-3 p-3 bg-blue-50 rounded-lg">
                   <CheckCircle className="h-5 w-5 text-blue-600 mt-0.5 flex-shrink-0" />
                   <span className="text-sm text-blue-900">{recommendation}</span>

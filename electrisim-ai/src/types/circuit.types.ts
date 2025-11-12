@@ -10,11 +10,12 @@ export interface Connection {
   to: string; // component id
   fromPort: number; // port index
   toPort: number; // port index
+  wireColor?: 'red' | 'black' | 'green' | 'blue'; // Wire color for visualization (red/green/blue for phases, black for neutral/ground)
 }
 
 export interface Component {
   id: string;
-  type: 'battery' | 'resistor' | 'capacitor' | 'inductor' | 'transformer' | 'diode' | 'led' | 'switch' | 'ground' | 'wire' | 'fan' | 'light' | 'tv' | 'ac' | 'motor' | 'heater' | 'voltmeter' | 'ammeter' | 'wattmeter' | 'fuse' | 'mcb' | 'rccb' | 'contactor' | 'relay' | 'timer' | 'sensor' | 'breaker' | 'socket' | 'junction' | 'ups' | 'inverter' | 'refrigerator' | 'washing-machine' | 'microwave' | 'dishwasher' | 'water-heater' | 'electric-stove' | 'electric-oven' | 'heat-pump' | 'electric-boiler';
+  type: 'battery' | 'resistor' | 'capacitor' | 'inductor' | 'transformer' | 'diode' | 'led' | 'switch' | 'ground' | 'wire' | 'fan' | 'light' | 'tv' | 'ac' | 'motor' | 'heater' | 'voltmeter' | 'ammeter' | 'wattmeter' | 'fuse' | 'mcb' | 'rccb' | 'contactor' | 'relay' | 'timer' | 'sensor' | 'breaker' | 'socket' | 'junction' | 'ups' | 'inverter' | 'refrigerator' | 'washing-machine' | 'microwave' | 'dishwasher' | 'water-heater' | 'electric-stove' | 'electric-oven' | 'heat-pump' | 'electric-boiler' | 'two-way-switch' | 'surge-protector' | 'gfci' | 'afci' | 'spd' | 'lightning-rod' | 'isolation-transformer' | 'emergency-stop' | 'overvoltage-protector' | 'undervoltage-protector';
   value: number;
   unit: string;
   position: Position;
@@ -127,6 +128,49 @@ export interface Component {
     // Socket specific
     socketType?: 'single' | 'double' | 'triple' | 'USB';
     socketRating?: number; // Socket rating in Amperes
+    
+    // Junction specific
+    junctionType?: 'distribution' | 'junction' | 'terminal';
+    
+    // Two-way switch specific
+    switchState?: 'on' | 'off';
+    switchType?: 'single-pole' | 'double-pole' | 'three-way' | 'four-way';
+    
+    // Surge protector specific
+    surgeRating?: number; // Joules
+    clampingVoltage?: number; // Volts
+    responseTime?: number; // Nanoseconds
+    
+    // GFCI specific
+    gfciSensitivity?: number; // mA (typically 5-30mA)
+    testButton?: boolean;
+    
+    // AFCI specific
+    afciSensitivity?: number; // mA
+    arcDetectionType?: 'series' | 'parallel' | 'both';
+    
+    // SPD specific
+    spdType?: 'type1' | 'type2' | 'type3';
+    maxDischargeCurrent?: number; // kA
+    
+    // Isolation transformer specific
+    isolationVoltage?: number; // Volts
+    isolationResistance?: number; // Ohms
+    
+    // Emergency stop specific
+    estopType?: 'normally-open' | 'normally-closed';
+    resetType?: 'manual' | 'automatic';
+    
+    // Overvoltage/Undervoltage protector specific
+    tripVoltage?: number; // Volts
+    resetVoltage?: number; // Volts
+    hysteresis?: number; // Volts
+
+    // Lightning protection
+    conductorMaterial?: 'copper' | 'aluminum' | 'galvanized';
+    protectionRadius?: number; // meters
+    rodHeight?: number; // meters
+    groundingResistance?: number; // ohms
   };
 }
 

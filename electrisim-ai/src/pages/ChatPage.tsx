@@ -14,6 +14,7 @@ const ChatPage: React.FC = () => {
   const [safety, setSafety] = useState<SafetyAssessment | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [showSuggestedQuestions, setShowSuggestedQuestions] = useState(true);
+  const [chatMode, setChatMode] = useState<'layman' | 'engineer'>('layman');
 
   // Suggested questions
   const suggestedQuestions = [
@@ -77,11 +78,13 @@ const ChatPage: React.FC = () => {
     setMessages(prev => [...prev, userMessage]);
 
     try {
+      // In layman mode, don't pass circuit context
       const response = await chatbotAgent.processQuery(
         message,
-        circuit,
-        analysis,
-        safety
+        chatMode === 'engineer' ? circuit : undefined,
+        chatMode === 'engineer' ? analysis : undefined,
+        chatMode === 'engineer' ? safety : undefined,
+        chatMode
       );
 
       const aiMessage: ChatMessage = {
@@ -116,9 +119,9 @@ const ChatPage: React.FC = () => {
   };
 
   return (
-    <div className="h-screen flex flex-col bg-gray-100">
+    <div className="h-screen flex flex-col bg-gray-100 overflow-hidden">
       {/* Header */}
-      <header className="bg-white shadow-sm border-b px-6 py-4">
+      <header className="flex-shrink-0 bg-white shadow-sm border-b px-6 py-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-4">
             <button
@@ -129,10 +132,37 @@ const ChatPage: React.FC = () => {
             </button>
             <div>
               <h1 className="text-2xl font-bold text-gray-900">ElectriSim AI Assistant</h1>
-              <p className="text-sm text-gray-600">Your intelligent electrical engineering companion</p>
+              <p className="text-sm text-gray-600">
+                {chatMode === 'layman' 
+                  ? 'General electrical safety advice for homeowners'
+                  : 'Technical electrical engineering assistance'}
+              </p>
             </div>
           </div>
           <div className="flex items-center space-x-4">
+            {/* Chat Mode Selector */}
+            <div className="flex items-center space-x-2 bg-gray-100 rounded-lg p-1">
+              <button
+                onClick={() => setChatMode('layman')}
+                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                  chatMode === 'layman'
+                    ? 'bg-white text-blue-600 shadow-sm'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                Homeowner
+              </button>
+              <button
+                onClick={() => setChatMode('engineer')}
+                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                  chatMode === 'engineer'
+                    ? 'bg-white text-blue-600 shadow-sm'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                Engineer
+              </button>
+            </div>
             <button 
               onClick={() => window.location.href = '/'}
               className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center"
@@ -145,17 +175,14 @@ const ChatPage: React.FC = () => {
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col overflow-hidden">
-        {/* Chat Interface */}
-        <div className="flex-1 bg-white">
-          <ChatInterface
-            messages={messages}
-            onSendMessage={handleChatMessage}
-            circuit={circuit}
-            analysis={analysis}
-            safety={safety}
-          />
-        </div>
+      <main className="flex-1 min-h-0 bg-white">
+        <ChatInterface
+          messages={messages}
+          onSendMessage={handleChatMessage}
+          circuit={circuit}
+          analysis={analysis}
+          safety={safety}
+        />
       </main>
     </div>
   );

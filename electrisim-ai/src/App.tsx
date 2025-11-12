@@ -17,7 +17,7 @@ function AppContent() {
   const isFullScreenPage = location.pathname === '/chat' || location.pathname === '/builder' || location.pathname === '/ai-builder';
 
   return (
-    <div className="min-h-screen bg-gray-100">
+    <div className={`min-h-screen bg-gray-100 ${isFullScreenPage ? 'fullscreen' : ''}`}>
       {/* Header - Only show on landing page */}
       {!isFullScreenPage && (
         <header className="bg-white shadow-sm border-b">

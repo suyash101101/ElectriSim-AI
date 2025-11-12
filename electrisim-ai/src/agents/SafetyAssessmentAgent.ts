@@ -1,5 +1,5 @@
 // Safety Assessment Agent
-import type { Circuit, CircuitAnalysis, SafetyAssessment, SafetyHazard, ComplianceCheck } from '../types/circuit.types';
+import type { Circuit, CircuitAnalysis, SafetyAssessment, SafetyHazard, ComplianceCheck, Component } from '../types/circuit.types';
 import { ElectricalCalculations } from '../utils/electricalCalculations';
 
 export class SafetyAssessmentAgent {
@@ -28,32 +28,109 @@ export class SafetyAssessmentAgent {
     const compliance: ComplianceCheck[] = [];
     const recommendations: string[] = [];
 
+    // Validate analysis values first - filter out impossible values
+    const validatedAnalysis = this.validateAnalysisValues(analysis, circuit);
+
     // Analyze circuit for safety hazards
-    this.analyzeOvercurrentHazards(analysis, circuit, hazards);
-    this.analyzeOvervoltageHazards(analysis, circuit, hazards);
-    this.analyzeShortCircuitHazards(analysis, circuit, hazards);
-    this.analyzeGroundFaultHazards(analysis, circuit, hazards);
-    this.analyzeThermalHazards(analysis, circuit, hazards);
-    this.analyzeArcFlashHazards(analysis, circuit, hazards);
+    this.analyzeOvercurrentHazards(validatedAnalysis, circuit, hazards);
+    this.analyzeOvervoltageHazards(validatedAnalysis, circuit, hazards);
+    this.analyzeShortCircuitHazards(validatedAnalysis, circuit, hazards);
+    this.analyzeGroundFaultHazards(validatedAnalysis, circuit, hazards);
+    this.analyzeThermalHazards(validatedAnalysis, circuit, hazards);
+    this.analyzeArcFlashHazards(validatedAnalysis, circuit, hazards);
+
+    // Remove duplicate hazards (same type/component/description)
+    const hazardMap = new Map<string, SafetyHazard>();
+    hazards.forEach(hazard => {
+      const key = `${hazard.type}|${hazard.componentId || 'global'}|${hazard.description}`;
+      if (!hazardMap.has(key)) {
+        hazardMap.set(key, hazard);
+      }
+    });
+    const uniqueHazards = Array.from(hazardMap.values());
 
     // Check compliance with safety standards
-    this.checkNECCompliance(analysis, circuit, compliance);
-    this.checkOSHACompliance(analysis, circuit, compliance);
-    this.checkNFPACompliance(analysis, circuit, compliance);
+    this.checkNECCompliance(validatedAnalysis, circuit, compliance);
+    this.checkOSHACompliance(validatedAnalysis, circuit, compliance);
+    this.checkNFPACompliance(validatedAnalysis, circuit, compliance);
 
     // Generate recommendations
-    this.generateSafetyRecommendations(hazards, compliance, recommendations);
+    this.generateSafetyRecommendations(uniqueHazards, compliance, recommendations);
+
+    // Remove duplicate recommendations
+    const recommendationSet = new Set<string>();
+    const uniqueRecommendations = recommendations.filter(rec => {
+      if (recommendationSet.has(rec)) {
+        return false;
+      }
+      recommendationSet.add(rec);
+      return true;
+    });
 
     // Calculate safety score
-    const safetyScore = this.calculateSafetyScore(hazards, compliance);
-    const riskLevel = this.determineRiskLevel(safetyScore, hazards);
+    const safetyScore = this.calculateSafetyScore(uniqueHazards, compliance);
+    const riskLevel = this.determineRiskLevel(safetyScore, uniqueHazards);
 
     return {
       safetyScore,
-      hazards,
+      hazards: uniqueHazards,
       compliance,
-      recommendations,
+      recommendations: uniqueRecommendations,
       riskLevel
+    };
+  }
+
+  // Validate analysis values - filter out impossible values
+  private validateAnalysisValues(analysis: CircuitAnalysis, circuit: Circuit): CircuitAnalysis {
+    const validatedVoltages: { [key: string]: number } = {};
+    const validatedCurrents: { [key: string]: number } = {};
+    const validatedPower: { [key: string]: number } = {};
+    
+    // Filter and clamp impossible values
+    Object.keys(analysis.voltages || {}).forEach(compId => {
+      const v = analysis.voltages[compId];
+      if (Number.isFinite(v) && v >= 0 && v <= 1000) {
+        validatedVoltages[compId] = v;
+      } else {
+        validatedVoltages[compId] = 0; // Set to 0 for invalid values
+      }
+    });
+    
+    Object.keys(analysis.currents || {}).forEach(compId => {
+      const i = analysis.currents[compId];
+      if (Number.isFinite(i) && i >= 0 && i <= 10000) {
+        validatedCurrents[compId] = i;
+      } else {
+        validatedCurrents[compId] = 0; // Set to 0 for invalid values
+      }
+    });
+    
+    // For power, use appliance powerConsumption directly when available
+    circuit.components.forEach(comp => {
+      const compId = comp.id;
+      const applianceTypes = ['fan', 'light', 'tv', 'ac', 'motor', 'heater', 'refrigerator', 'washing-machine', 'microwave', 'ups', 'inverter', 'dishwasher', 'water-heater', 'electric-stove', 'electric-oven', 'heat-pump', 'electric-boiler'];
+      
+      if (applianceTypes.includes(comp.type) && comp.properties.powerConsumption) {
+        // Use powerConsumption directly for appliances
+        validatedPower[compId] = comp.properties.powerConsumption;
+      } else {
+        // For other components, validate calculated power
+        const p = analysis.power[compId] || 0;
+        if (Number.isFinite(p) && p >= 0 && p <= 10000000) {
+          validatedPower[compId] = p;
+        } else {
+          validatedPower[compId] = 0;
+        }
+      }
+    });
+    
+    return {
+      voltages: validatedVoltages,
+      currents: validatedCurrents,
+      power: validatedPower,
+      totalPower: analysis.totalPower || 0,
+      efficiency: analysis.efficiency || 0,
+      issues: analysis.issues || []
     };
   }
 
@@ -98,6 +175,14 @@ export class SafetyAssessmentAgent {
 
   // Analyze overvoltage hazards
   private analyzeOvervoltageHazards(analysis: CircuitAnalysis, circuit: Circuit, hazards: SafetyHazard[]): void {
+    const accessibleTypes: Component['type'][] = [
+      'socket', 'switch', 'two-way-switch', 'light', 'fan', 'tv', 'ac', 'heater',
+      'motor', 'washing-machine', 'dishwasher', 'microwave', 'refrigerator',
+      'water-heater', 'electric-stove', 'electric-oven', 'heat-pump', 'electric-boiler'
+    ];
+    const hasProtection = circuit.components.some(c => ['gfci', 'rccb', 'afci'].includes(c.type));
+    const accessibleHighVoltage: string[] = [];
+
     circuit.components.forEach(component => {
       const voltage = analysis.voltages[component.id] || 0;
       
@@ -125,38 +210,54 @@ export class SafetyAssessmentAgent {
         });
       }
 
-      // Check OSHA touch voltage limits
-      if (voltage > this.safetyStandards.OSHA.maxTouchVoltage) {
-        hazards.push({
-          id: `touch-voltage-${component.id}`,
-          type: 'overvoltage',
-          severity: 'medium',
-          componentId: component.id,
-          description: `Touch voltage ${voltage.toFixed(2)}V exceeds OSHA limit of ${this.safetyStandards.OSHA.maxTouchVoltage}V`,
-          mitigation: 'Ensure proper insulation and grounding'
-        });
+      const isAccessible = accessibleTypes.includes(component.type);
+      if (!hasProtection && isAccessible && voltage > this.safetyStandards.OSHA.maxTouchVoltage) {
+        accessibleHighVoltage.push(`${component.type} (${component.id})`);
       }
     });
+
+    if (!hasProtection && accessibleHighVoltage.length > 0) {
+      hazards.push({
+        id: 'touch-voltage-accessible',
+        type: 'overvoltage',
+        severity: 'high',
+        description: `${accessibleHighVoltage.length} accessible component(s) exceed OSHA touch voltage limit of ${this.safetyStandards.OSHA.maxTouchVoltage}V`,
+        mitigation: 'Install GFCI/RCCB protection and ensure proper insulation/grounding'
+      });
+    }
   }
 
   // Analyze short circuit hazards
   private analyzeShortCircuitHazards(analysis: CircuitAnalysis, circuit: Circuit, hazards: SafetyHazard[]): void {
-    const powerSources = circuit.components.filter(c => c.type === 'battery');
+    const powerSources = circuit.components.filter(c => c.type === 'battery' || c.type === 'socket');
+    const reportedShorts = new Set<string>();
+    const supplyVoltage = circuit.metadata?.voltage && circuit.metadata.voltage > 0 
+      ? circuit.metadata.voltage 
+      : 230;
     
     powerSources.forEach(source => {
       const current = analysis.currents[source.id] || 0;
-      const voltage = analysis.voltages[source.id] || 0;
+      const voltage = analysis.voltages[source.id] || supplyVoltage;
       
-      // Detect potential short circuits
-      if (voltage > 0 && current > voltage * 5) { // High current relative to voltage
-        hazards.push({
-          id: `short-circuit-${source.id}`,
-          type: 'short_circuit',
-          severity: 'critical',
-          componentId: source.id,
-          description: `Potential short circuit detected: ${current.toFixed(2)}A at ${voltage.toFixed(2)}V`,
-          mitigation: 'Add fuses, circuit breakers, or current limiting devices'
-        });
+      // Only flag if voltage is reasonable (not a misread) and current is truly excessive
+      // For 230V systems, normal loads shouldn't exceed ~150A for residential
+      // Short circuit would be much higher (1000A+)
+      const expectedMaxCurrent = supplyVoltage <= 50 ? 50 : 150; // Higher threshold for low voltage
+      
+      // Only report if it's a genuine short circuit (very high current relative to voltage)
+      if (voltage > 0 && voltage <= 600 && current > expectedMaxCurrent && current > voltage * 3) {
+        const key = `short-${source.id}`;
+        if (!reportedShorts.has(key)) {
+          hazards.push({
+            id: `short-circuit-${source.id}`,
+            type: 'short_circuit',
+            severity: 'critical',
+            componentId: source.id,
+            description: `Potential short circuit detected: ${current.toFixed(2)}A at ${voltage.toFixed(2)}V`,
+            mitigation: 'Add fuses, circuit breakers, or current limiting devices'
+          });
+          reportedShorts.add(key);
+        }
       }
     });
   }
@@ -164,6 +265,7 @@ export class SafetyAssessmentAgent {
   // Analyze ground fault hazards
   private analyzeGroundFaultHazards(analysis: CircuitAnalysis, circuit: Circuit, hazards: SafetyHazard[]): void {
     const hasGround = circuit.components.some(c => c.type === 'ground');
+    const hasGroundFaultProtection = circuit.components.some(c => ['gfci', 'rccb'].includes(c.type));
     
     if (!hasGround) {
       hazards.push({
@@ -176,6 +278,10 @@ export class SafetyAssessmentAgent {
     }
 
     // Check for ground fault current
+    if (hasGroundFaultProtection) {
+      return;
+    }
+
     const powerSources = circuit.components.filter(c => c.type === 'battery');
     powerSources.forEach(source => {
       const voltage = analysis.voltages[source.id] || 0;
@@ -200,8 +306,28 @@ export class SafetyAssessmentAgent {
 
   // Analyze thermal hazards
   private analyzeThermalHazards(analysis: CircuitAnalysis, circuit: Circuit, hazards: SafetyHazard[]): void {
+    // List of appliance types that legitimately consume high power
+    const highPowerAppliances: Component['type'][] = [
+      'ac', 'heater', 'motor', 'washing-machine', 'microwave', 'dishwasher',
+      'water-heater', 'electric-stove', 'electric-oven', 'heat-pump', 'electric-boiler',
+      'ups', 'inverter', 'refrigerator'
+    ];
+
     circuit.components.forEach(component => {
-      const power = analysis.power[component.id] || 0;
+      // Use powerConsumption directly for appliances, validated power for others
+      let power: number;
+      if (highPowerAppliances.includes(component.type) && component.properties.powerConsumption) {
+        power = component.properties.powerConsumption;
+      } else {
+        power = analysis.power[component.id] || 0;
+      }
+      
+      // Skip if power is invalid or zero
+      if (!Number.isFinite(power) || power <= 0 || power > 10000000) {
+        return;
+      }
+      
+      const isHighPowerAppliance = highPowerAppliances.includes(component.type);
       
       // Check power ratings
       if (component.properties.powerRating && power > component.properties.powerRating) {
@@ -215,32 +341,45 @@ export class SafetyAssessmentAgent {
         });
       }
 
-      // Check for excessive power density
-      if (power > 1) { // Components dissipating more than 1W
-        hazards.push({
-          id: `thermal-density-${component.id}`,
-          type: 'thermal',
-          severity: 'medium',
-          componentId: component.id,
-          description: `High power dissipation ${power.toFixed(2)}W may cause thermal issues`,
-          mitigation: 'Ensure adequate ventilation and heat sinking'
-        });
+      // Only check for excessive power density for non-appliance components or protection devices
+      // Appliances like AC, heaters, etc. are designed to handle their rated power
+      if (!component.properties.powerRating && !isHighPowerAppliance) {
+        // For protection devices and small components, flag if power is unusually high
+        const isProtectionDevice = ['mcb', 'rccb', 'gfci', 'afci', 'spd', 'surge-protector', 'fuse'].includes(component.type);
+        const threshold = isProtectionDevice ? 100 : 500; // Lower threshold for protection devices
+        
+        if (power > threshold) {
+          hazards.push({
+            id: `thermal-density-${component.id}`,
+            type: 'thermal',
+            severity: 'medium',
+            componentId: component.id,
+            description: `High power dissipation ${power.toFixed(2)}W may cause thermal issues`,
+            mitigation: 'Ensure adequate ventilation and heat sinking'
+          });
+        }
       }
     });
   }
 
   // Analyze arc flash hazards
   private analyzeArcFlashHazards(analysis: CircuitAnalysis, circuit: Circuit, hazards: SafetyHazard[]): void {
-    const powerSources = circuit.components.filter(c => c.type === 'battery');
+    const powerSources = circuit.components.filter(c => c.type === 'battery' || c.type === 'socket');
     
     powerSources.forEach(source => {
       const voltage = analysis.voltages[source.id] || 0;
       const current = analysis.currents[source.id] || 0;
       
+      // Validate values before calculating arc flash
+      if (!Number.isFinite(voltage) || voltage < 0 || voltage > 1000) return;
+      if (!Number.isFinite(current) || current < 0 || current > 10000) return;
+      
       if (voltage > 50) { // Arc flash risk above 50V
-        const arcFlashEnergy = ElectricalCalculations.calculateArcFlashEnergy(voltage, current, 18); // 18 inch working distance
+        // Use realistic fault current (typically 10x operating current for short circuit)
+        const faultCurrent = Math.min(current * 10, 10000); // Cap at 10kA for realistic calculation
+        const arcFlashEnergy = ElectricalCalculations.calculateArcFlashEnergy(voltage, faultCurrent, 18); // 18 inch working distance
         
-        if (arcFlashEnergy > this.safetyStandards.NFPA.maxArcFlashEnergy) {
+        if (Number.isFinite(arcFlashEnergy) && arcFlashEnergy > this.safetyStandards.NFPA.maxArcFlashEnergy) {
           hazards.push({
             id: `arc-flash-${source.id}`,
             type: 'arc_flash',
@@ -256,26 +395,87 @@ export class SafetyAssessmentAgent {
 
   // Check NEC compliance
   private checkNECCompliance(analysis: CircuitAnalysis, circuit: Circuit, compliance: ComplianceCheck[]): void {
-    const maxVoltage = Math.max(...Object.values(analysis.voltages));
-    const maxCurrent = Math.max(...Object.values(analysis.currents));
+    // Filter out impossible values
+    const voltageValues = Object.values(analysis.voltages || {}).filter(value => 
+      Number.isFinite(value) && value >= 0 && value <= 1000
+    );
+    const currentValues = Object.values(analysis.currents || {}).filter(value => 
+      Number.isFinite(value) && value >= 0 && value <= 10000
+    );
+    const maxVoltage = voltageValues.length ? Math.max(...voltageValues) : 0;
+    const maxCurrent = currentValues.length ? Math.max(...currentValues) : 0;
+
+    const criticalProtection = ['mcb', 'rccb', 'ground'];
+    const recommendedProtection = ['gfci', 'afci', 'spd', 'surge-protector', 'overvoltage-protector', 'undervoltage-protector', 'emergency-stop'];
+
+    const hasComponentType = (type: string) => circuit.components.some(component => component.type === type);
+    const missingCritical = criticalProtection.filter(type => !hasComponentType(type));
+    const missingRecommended = recommendedProtection.filter(type => !hasComponentType(type));
+
+    let status: ComplianceCheck['status'] = 'compliant';
+    const descriptionParts: string[] = [];
+
+    if (!voltageValues.length || !currentValues.length) {
+      status = 'warning';
+      descriptionParts.push('Insufficient voltage/current data to fully verify NEC limits');
+    } else if (maxVoltage > this.safetyStandards.NEC.maxVoltage || maxCurrent > this.safetyStandards.NEC.maxCurrent) {
+      status = 'non_compliant';
+      if (maxVoltage > this.safetyStandards.NEC.maxVoltage) {
+        descriptionParts.push(`Max voltage ${maxVoltage.toFixed(1)}V exceeds NEC limit ${this.safetyStandards.NEC.maxVoltage}V`);
+      }
+      if (maxCurrent > this.safetyStandards.NEC.maxCurrent) {
+        descriptionParts.push(`Max current ${maxCurrent.toFixed(2)}A exceeds NEC limit ${this.safetyStandards.NEC.maxCurrent}A`);
+      }
+    } else {
+      descriptionParts.push(`Voltage ${maxVoltage.toFixed(1)}V and current ${maxCurrent.toFixed(2)}A within NEC limits`);
+    }
+
+    if (missingCritical.length) {
+      status = 'non_compliant';
+      descriptionParts.push(`Missing critical protection: ${missingCritical.join(', ')}`);
+    } else if (missingRecommended.length) {
+      if (status !== 'non_compliant') {
+        status = 'warning';
+      }
+      descriptionParts.push(`Consider adding protection: ${missingRecommended.join(', ')}`);
+    } else {
+      descriptionParts.push('All critical protection devices present');
+    }
 
     compliance.push({
       standard: 'NEC',
-      status: (maxVoltage <= this.safetyStandards.NEC.maxVoltage && maxCurrent <= this.safetyStandards.NEC.maxCurrent) ? 'compliant' : 'non_compliant',
-      description: `Voltage and current levels within NEC limits`,
-      requirement: `Maximum voltage: ${this.safetyStandards.NEC.maxVoltage}V, Maximum current: ${this.safetyStandards.NEC.maxCurrent}A`
+      status,
+      description: descriptionParts.join(' | '),
+      requirement: `Keep voltage ≤ ${this.safetyStandards.NEC.maxVoltage}V & current ≤ ${this.safetyStandards.NEC.maxCurrent}A. Required protection: MCB, RCCB, grounding. Recommended: GFCI, AFCI, SPD, surge, over/undervoltage, emergency stop.`
     });
   }
 
   // Check OSHA compliance
   private checkOSHACompliance(analysis: CircuitAnalysis, circuit: Circuit, compliance: ComplianceCheck[]): void {
-    const maxVoltage = Math.max(...Object.values(analysis.voltages));
+    // Filter out impossible values
+    const voltageValues = Object.values(analysis.voltages || {}).filter(value => 
+      Number.isFinite(value) && value >= 0 && value <= 1000
+    );
+    const maxVoltage = voltageValues.length ? Math.max(...voltageValues) : 0;
+
+    let status: ComplianceCheck['status'] = 'compliant';
+    let description: string;
+
+    if (!voltageValues.length) {
+      status = 'warning';
+      description = 'Touch voltage data unavailable – unable to fully verify OSHA compliance';
+    } else if (maxVoltage > this.safetyStandards.OSHA.maxTouchVoltage) {
+      status = 'warning';
+      description = `Touch voltage ${maxVoltage.toFixed(1)}V exceeds OSHA recommended limit ${this.safetyStandards.OSHA.maxTouchVoltage}V`;
+    } else {
+      description = `Touch voltage ${maxVoltage.toFixed(1)}V within OSHA safe limit ${this.safetyStandards.OSHA.maxTouchVoltage}V`;
+    }
 
     compliance.push({
       standard: 'OSHA',
-      status: maxVoltage <= this.safetyStandards.OSHA.maxTouchVoltage ? 'compliant' : 'warning',
-      description: `Touch voltage within OSHA limits`,
-      requirement: `Maximum touch voltage: ${this.safetyStandards.OSHA.maxTouchVoltage}V`
+      status,
+      description,
+      requirement: `Keep accessible touch voltage ≤ ${this.safetyStandards.OSHA.maxTouchVoltage}V and provide proper isolation/guards.`
     });
   }
 
@@ -290,15 +490,33 @@ export class SafetyAssessmentAgent {
       
       if (voltage > 50) {
         const arcFlashEnergy = ElectricalCalculations.calculateArcFlashEnergy(voltage, current, 18);
-        maxArcFlashEnergy = Math.max(maxArcFlashEnergy, arcFlashEnergy);
+        if (Number.isFinite(arcFlashEnergy)) {
+          maxArcFlashEnergy = Math.max(maxArcFlashEnergy, arcFlashEnergy);
+        }
       }
     });
 
+    let status: ComplianceCheck['status'] = 'compliant';
+    let description: string;
+
+    if (powerSources.length === 0) {
+      status = 'warning';
+      description = 'No primary power sources detected – unable to evaluate arc flash risk';
+    } else if (maxArcFlashEnergy === 0) {
+      status = 'warning';
+      description = 'Arc flash energy could not be calculated – verify fault current data';
+    } else if (maxArcFlashEnergy > this.safetyStandards.NFPA.maxArcFlashEnergy) {
+      status = 'non_compliant';
+      description = `Arc flash energy ${maxArcFlashEnergy.toFixed(2)} cal/cm² exceeds NFPA limit ${this.safetyStandards.NFPA.maxArcFlashEnergy} cal/cm²`;
+    } else {
+      description = `Arc flash energy ${maxArcFlashEnergy.toFixed(2)} cal/cm² within NFPA limit ${this.safetyStandards.NFPA.maxArcFlashEnergy} cal/cm²`;
+    }
+
     compliance.push({
       standard: 'NFPA',
-      status: maxArcFlashEnergy <= this.safetyStandards.NFPA.maxArcFlashEnergy ? 'compliant' : 'non_compliant',
-      description: `Arc flash energy within NFPA limits`,
-      requirement: `Maximum arc flash energy: ${this.safetyStandards.NFPA.maxArcFlashEnergy} cal/cm²`
+      status,
+      description,
+      requirement: `Limit incident energy to ≤ ${this.safetyStandards.NFPA.maxArcFlashEnergy} cal/cm² at 18" working distance and apply appropriate PPE.`
     });
   }
 
@@ -327,35 +545,41 @@ export class SafetyAssessmentAgent {
   // Calculate safety score (0-100)
   private calculateSafetyScore(hazards: SafetyHazard[], compliance: ComplianceCheck[]): number {
     let score = 100;
+    const hasProtection = hazards.length === 0 || 
+      !hazards.some(h => h.type === 'short_circuit' && h.severity === 'critical');
+    const protectionBonus = hasProtection ? 20 : 0; // Bonus for having protection devices
+    score += protectionBonus;
 
-    // Deduct points for hazards
+    // Deduct points for hazards (reduced penalties)
     hazards.forEach(hazard => {
       switch (hazard.severity) {
         case 'critical':
-          score -= 30;
+          score -= 25; // Reduced from 30
           break;
         case 'high':
-          score -= 20;
+          score -= 15; // Reduced from 20
           break;
         case 'medium':
-          score -= 10;
+          score -= 8; // Reduced from 10
           break;
         case 'low':
-          score -= 5;
+          score -= 3; // Reduced from 5
           break;
       }
     });
 
-    // Deduct points for non-compliance
+    // Deduct points for non-compliance (reduced penalties)
     compliance.forEach(check => {
       if (check.status === 'non_compliant') {
-        score -= 15;
+        score -= 12; // Reduced from 15
       } else if (check.status === 'warning') {
-        score -= 5;
+        score -= 3; // Reduced from 5
       }
     });
 
-    return Math.max(0, score);
+    // Cap at 100 and ensure minimum of 10 if protection devices exist
+    const finalScore = Math.min(100, Math.max(hasProtection ? 10 : 0, score));
+    return finalScore;
   }
 
   // Determine risk level

@@ -26,7 +26,11 @@ import {
   Clock,
   Eye,
   Plug,
-  CircleDot
+  CircleDot,
+  AlertTriangle,
+  Layers,
+  AlertCircle,
+  Radio
 } from 'lucide-react';
 
 interface ComponentLibraryProps {
@@ -745,6 +749,190 @@ export const ComponentLibrary: React.FC<ComponentLibraryProps> = ({
         currentRating: 32
       }
     },
+    {
+      id: 'two-way-switch-template',
+      type: 'two-way-switch',
+      value: 0,
+      unit: '',
+      position: { x: 0, y: 0 },
+      rotation: 0,
+      connections: [],
+      ports: 3,
+      properties: { 
+        description: '2-Way Switch',
+        commonUse: 'Control lights from two locations',
+        switchType: 'three-way',
+        switchState: 'off',
+        voltageRating: 250,
+        currentRating: 10
+      }
+    },
+    {
+      id: 'surge-protector-template',
+      type: 'surge-protector',
+      value: 1000,
+      unit: 'J',
+      position: { x: 0, y: 0 },
+      rotation: 0,
+      connections: [],
+      ports: 2,
+      properties: { 
+        description: 'Surge Protector',
+        commonUse: 'Voltage spike protection',
+        surgeRating: 1000,
+        clampingVoltage: 400,
+        responseTime: 1,
+        voltageRating: 230,
+        currentRating: 16
+      }
+    },
+    {
+      id: 'gfci-template',
+      type: 'gfci',
+      value: 5,
+      unit: 'mA',
+      position: { x: 0, y: 0 },
+      rotation: 0,
+      connections: [],
+      ports: 2,
+      properties: { 
+        description: 'GFCI Outlet',
+        commonUse: 'Ground fault protection for wet locations',
+        gfciSensitivity: 5,
+        testButton: true,
+        voltageRating: 230,
+        currentRating: 16
+      }
+    },
+    {
+      id: 'afci-template',
+      type: 'afci',
+      value: 30,
+      unit: 'mA',
+      position: { x: 0, y: 0 },
+      rotation: 0,
+      connections: [],
+      ports: 2,
+      properties: { 
+        description: 'AFCI Breaker',
+        commonUse: 'Arc fault protection for bedrooms',
+        afciSensitivity: 30,
+        arcDetectionType: 'both',
+        voltageRating: 230,
+        currentRating: 20
+      }
+    },
+    {
+      id: 'spd-template',
+      type: 'spd',
+      value: 20,
+      unit: 'kA',
+      position: { x: 0, y: 0 },
+      rotation: 0,
+      connections: [],
+      ports: 2,
+      properties: { 
+        description: 'Surge Protection Device',
+        commonUse: 'Main panel surge protection',
+        spdType: 'type2',
+        maxDischargeCurrent: 20,
+        clampingVoltage: 600,
+        voltageRating: 230,
+        currentRating: 63
+      }
+    },
+    {
+      id: 'lightning-rod-template',
+      type: 'lightning-rod',
+      value: 0,
+      unit: '',
+      position: { x: 0, y: 0 },
+      rotation: 0,
+      connections: [],
+      ports: 2,
+      properties: { 
+        description: 'Lightning Protection Rod',
+        commonUse: 'Lightning strike diversion to ground',
+        conductorMaterial: 'copper',
+        rodHeight: 3,
+        protectionRadius: 5,
+        groundingResistance: 10
+      }
+    },
+    {
+      id: 'isolation-transformer-template',
+      type: 'isolation-transformer',
+      value: 1000,
+      unit: 'VA',
+      position: { x: 0, y: 0 },
+      rotation: 0,
+      connections: [],
+      ports: 4,
+      properties: { 
+        description: 'Isolation Transformer',
+        commonUse: 'Electrical isolation for safety',
+        isolationVoltage: 4000,
+        isolationResistance: 1000000,
+        voltageRating: 230,
+        currentRating: 4.35
+      }
+    },
+    {
+      id: 'emergency-stop-template',
+      type: 'emergency-stop',
+      value: 0,
+      unit: '',
+      position: { x: 0, y: 0 },
+      rotation: 0,
+      connections: [],
+      ports: 2,
+      properties: { 
+        description: 'Emergency Stop Button',
+        commonUse: 'Emergency shutdown',
+        estopType: 'normally-closed',
+        resetType: 'manual',
+        voltageRating: 250,
+        currentRating: 10
+      }
+    },
+    {
+      id: 'overvoltage-protector-template',
+      type: 'overvoltage-protector',
+      value: 280,
+      unit: 'V',
+      position: { x: 0, y: 0 },
+      rotation: 0,
+      connections: [],
+      ports: 2,
+      properties: { 
+        description: 'Overvoltage Protector',
+        commonUse: 'Protection against voltage spikes',
+        tripVoltage: 280,
+        resetVoltage: 250,
+        hysteresis: 10,
+        voltageRating: 230,
+        currentRating: 16
+      }
+    },
+    {
+      id: 'undervoltage-protector-template',
+      type: 'undervoltage-protector',
+      value: 180,
+      unit: 'V',
+      position: { x: 0, y: 0 },
+      rotation: 0,
+      connections: [],
+      ports: 2,
+      properties: { 
+        description: 'Undervoltage Protector',
+        commonUse: 'Protection against low voltage',
+        tripVoltage: 180,
+        resetVoltage: 200,
+        hysteresis: 10,
+        voltageRating: 230,
+        currentRating: 16
+      }
+    },
 
     // Control Devices
     {
@@ -878,10 +1066,10 @@ export const ComponentLibrary: React.FC<ComponentLibraryProps> = ({
     { id: 'power', name: 'Power', icon: Battery, count: componentTemplates.filter(c => c.type === 'battery').length },
     { id: 'passive', name: 'Passive', icon: Square, count: componentTemplates.filter(c => ['resistor', 'capacitor', 'inductor'].includes(c.type)).length },
     { id: 'active', name: 'Active', icon: Zap, count: componentTemplates.filter(c => ['led', 'diode', 'transformer'].includes(c.type)).length },
-    { id: 'control', name: 'Control', icon: ToggleLeft, count: componentTemplates.filter(c => ['switch', 'ground'].includes(c.type)).length },
+    { id: 'control', name: 'Control', icon: ToggleLeft, count: componentTemplates.filter(c => ['switch', 'two-way-switch', 'ground', 'emergency-stop'].includes(c.type)).length },
     { id: 'appliances', name: 'Appliances', icon: Lightbulb, count: componentTemplates.filter(c => ['light', 'fan', 'tv', 'ac', 'heater', 'motor'].includes(c.type)).length },
     { id: 'meters', name: 'Meters', icon: Gauge, count: componentTemplates.filter(c => ['voltmeter', 'ammeter', 'wattmeter'].includes(c.type)).length },
-    { id: 'protection', name: 'Protection', icon: Shield, count: componentTemplates.filter(c => ['fuse', 'mcb', 'rccb'].includes(c.type)).length },
+    { id: 'protection', name: 'Protection', icon: Shield, count: componentTemplates.filter(c => ['fuse', 'mcb', 'rccb', 'surge-protector', 'gfci', 'afci', 'spd', 'two-way-switch', 'lightning-rod', 'overvoltage-protector', 'undervoltage-protector', 'emergency-stop'].includes(c.type)).length },
     { id: 'control-devices', name: 'Control Devices', icon: Power, count: componentTemplates.filter(c => ['contactor', 'relay', 'timer'].includes(c.type)).length },
     { id: 'sensors', name: 'Sensors', icon: Eye, count: componentTemplates.filter(c => c.type === 'sensor').length },
     { id: 'distribution', name: 'Distribution', icon: Plug, count: componentTemplates.filter(c => ['socket', 'junction'].includes(c.type)).length }
@@ -897,10 +1085,10 @@ export const ComponentLibrary: React.FC<ComponentLibraryProps> = ({
                            (selectedCategory === 'power' && component.type === 'battery') ||
                            (selectedCategory === 'passive' && ['resistor', 'capacitor', 'inductor'].includes(component.type)) ||
                            (selectedCategory === 'active' && ['led', 'diode', 'transformer'].includes(component.type)) ||
-                           (selectedCategory === 'control' && ['switch', 'ground'].includes(component.type)) ||
+                           (selectedCategory === 'control' && ['switch', 'two-way-switch', 'ground', 'emergency-stop'].includes(component.type)) ||
                            (selectedCategory === 'appliances' && ['light', 'fan', 'tv', 'ac', 'heater', 'motor'].includes(component.type)) ||
                            (selectedCategory === 'meters' && ['voltmeter', 'ammeter', 'wattmeter'].includes(component.type)) ||
-                           (selectedCategory === 'protection' && ['fuse', 'mcb', 'rccb'].includes(component.type)) ||
+                           (selectedCategory === 'protection' && ['fuse', 'mcb', 'rccb', 'surge-protector', 'gfci', 'afci', 'spd', 'two-way-switch', 'lightning-rod', 'overvoltage-protector', 'undervoltage-protector', 'emergency-stop'].includes(component.type)) ||
                            (selectedCategory === 'control-devices' && ['contactor', 'relay', 'timer'].includes(component.type)) ||
                            (selectedCategory === 'sensors' && component.type === 'sensor') ||
                            (selectedCategory === 'distribution' && ['socket', 'junction'].includes(component.type));
@@ -934,6 +1122,16 @@ export const ComponentLibrary: React.FC<ComponentLibraryProps> = ({
       case 'fuse': return Shield;
       case 'mcb': return Shield;
       case 'rccb': return Shield;
+      case 'two-way-switch': return ToggleLeft;
+      case 'surge-protector': return Shield;
+      case 'gfci': return Shield;
+      case 'lightning-rod': return Zap;
+      case 'afci': return Shield;
+      case 'spd': return Shield;
+      case 'isolation-transformer': return Layers;
+      case 'emergency-stop': return AlertTriangle;
+      case 'overvoltage-protector': return AlertCircle;
+      case 'undervoltage-protector': return AlertCircle;
       case 'contactor': return Power;
       case 'relay': return Power;
       case 'timer': return Clock;
@@ -968,6 +1166,16 @@ export const ComponentLibrary: React.FC<ComponentLibraryProps> = ({
       case 'fuse': return 'text-red-600 bg-red-100';
       case 'mcb': return 'text-red-600 bg-red-100';
       case 'rccb': return 'text-red-600 bg-red-100';
+      case 'two-way-switch': return 'text-gray-600 bg-gray-100';
+      case 'surge-protector': return 'text-orange-600 bg-orange-100';
+      case 'gfci': return 'text-blue-600 bg-blue-100';
+      case 'lightning-rod': return 'text-blue-600 bg-blue-100';
+      case 'afci': return 'text-purple-600 bg-purple-100';
+      case 'spd': return 'text-orange-600 bg-orange-100';
+      case 'isolation-transformer': return 'text-indigo-600 bg-indigo-100';
+      case 'emergency-stop': return 'text-red-600 bg-red-100';
+      case 'overvoltage-protector': return 'text-yellow-600 bg-yellow-100';
+      case 'undervoltage-protector': return 'text-yellow-600 bg-yellow-100';
       case 'contactor': return 'text-orange-600 bg-orange-100';
       case 'relay': return 'text-orange-600 bg-orange-100';
       case 'timer': return 'text-orange-600 bg-orange-100';

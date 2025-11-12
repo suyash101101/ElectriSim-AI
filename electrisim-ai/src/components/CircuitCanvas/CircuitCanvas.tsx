@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import type { Circuit, CircuitAnalysis, Component, Connection, Position } from '../../types/circuit.types';
-import { Trash2, Edit3, Link } from 'lucide-react';
+import { Trash2, Link } from 'lucide-react';
 
 interface CircuitCanvasProps {
   circuit: Circuit;
@@ -36,6 +36,9 @@ export const CircuitCanvas: React.FC<CircuitCanvasProps> = ({
   const [editValue, setEditValue] = useState<string>('');
   const [editProperty, setEditProperty] = useState<'value' | 'unit' | 'batteryType' | 'frequency' | 'turnsRatio' | 'forwardVoltage' | 'powerConsumption' | 'operatingVoltage' | 'operatingCurrent' | 'efficiency' | 'coolingCapacity' | 'heatingCapacity' | 'screenSize' | 'fanSpeed' | 'motorType' | 'description' | 'name'>('value');
   const [showEditModal, setShowEditModal] = useState(false);
+  
+  // Context menu state
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; componentId: string } | null>(null);
   
   // Connection state
   const [connectionMode, setConnectionMode] = useState(false);
@@ -128,7 +131,6 @@ export const CircuitCanvas: React.FC<CircuitCanvasProps> = ({
 
   // Draw connections
   const drawConnections = (ctx: CanvasRenderingContext2D) => {
-    ctx.strokeStyle = '#374151';
     ctx.lineWidth = 3;
 
     circuit.connections.forEach(connection => {
@@ -136,14 +138,47 @@ export const CircuitCanvas: React.FC<CircuitCanvasProps> = ({
       const toComponent = circuit.components.find(c => c.id === connection.to);
 
       if (fromComponent && toComponent) {
+        // Determine wire color based on connection type or default
+        let wireColor = connection.wireColor;
+        
+        // Auto-detect wire color if not specified (only red and black)
+        if (!wireColor) {
+          const fromType = fromComponent.type;
+          const toType = toComponent.type;
+
+          if (fromType === 'ground' || toType === 'ground') {
+            wireColor = 'black';
+          } else if (fromType === 'battery' || fromType === 'socket' || toType === 'battery' || toType === 'socket') {
+            wireColor = 'red';
+          } else {
+            wireColor = 'black';
+          }
+        }
+
+        // Set stroke color based on wire color (default to black)
+        switch (wireColor) {
+          case 'red':
+            ctx.strokeStyle = '#dc2626'; // Red for phase 1 or live
+            break;
+          case 'green':
+            ctx.strokeStyle = '#16a34a'; // Green for phase 2
+            break;
+          case 'blue':
+            ctx.strokeStyle = '#2563eb'; // Blue for phase 3
+            break;
+          default:
+            ctx.strokeStyle = '#1f2937'; // Black for neutral/ground
+            wireColor = 'black';
+        }
+
         // Draw connection line
         ctx.beginPath();
         ctx.moveTo(fromComponent.position.x, fromComponent.position.y);
         ctx.lineTo(toComponent.position.x, toComponent.position.y);
         ctx.stroke();
 
-        // Draw connection points
-        ctx.fillStyle = '#6b7280';
+        // Draw connection points with matching color
+        ctx.fillStyle = ctx.strokeStyle;
         ctx.beginPath();
         ctx.arc(fromComponent.position.x, fromComponent.position.y, 3, 0, 2 * Math.PI);
         ctx.fill();
@@ -210,55 +245,80 @@ export const CircuitCanvas: React.FC<CircuitCanvasProps> = ({
     // Draw port circles
     drawPortCircles(ctx, component);
 
-    // Draw component label (value and unit)
-    ctx.fillStyle = '#374151';
-    ctx.font = 'bold 9px Arial';
+    // Draw component label (value and unit) - below component, not overlapping
+    ctx.fillStyle = '#1f2937';
+    ctx.font = 'bold 10px Arial';
     ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    
+    // Add background for better readability
+    const labelText = `${value}${unit}`;
+    const textMetrics = ctx.measureText(labelText);
+    const labelWidth = textMetrics.width + 4;
+    const labelHeight = 12;
+    
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+    ctx.fillRect(
+      position.x - labelWidth/2,
+      position.y + height/2 + 12,
+      labelWidth,
+      labelHeight
+    );
+    
+    ctx.fillStyle = '#1f2937';
     ctx.fillText(
-      `${value}${unit}`,
+      labelText,
       position.x,
-      position.y + height/2 + 10
+      position.y + height/2 + 14
     );
 
-    // Draw component ID (smaller, below the value)
-    ctx.font = '7px Arial';
-    ctx.fillStyle = '#6b7280';
-    ctx.fillText(
-      component.id.length > 8 ? component.id.substring(0, 8) + '...' : component.id,
-      position.x,
-      position.y + height/2 + 22
-    );
-
-    // Draw component name/description if available
-    if (component.properties?.description) {
-      ctx.font = '6px Arial';
-      ctx.fillStyle = '#9ca3af';
-      ctx.fillText(
-        component.properties.description.length > 12 ? 
-          component.properties.description.substring(0, 12) + '...' : 
-          component.properties.description,
-        position.x,
-        position.y + height/2 + 30
-      );
-    }
-
-    // Draw analysis values if available
+    // Draw analysis values if available (normal text, no green hue)
     if (analysis) {
       const voltage = analysis.voltages[component.id];
       const current = analysis.currents[component.id];
       
       if (voltage !== undefined && current !== undefined) {
         ctx.font = '8px Arial';
-        ctx.fillStyle = '#059669';
-        ctx.fillText(
-          `${voltage.toFixed(1)}V`,
-          position.x - 15,
-          position.y + height/2 + 20
+        ctx.fillStyle = '#374151'; // Normal gray text, no green
+        
+        // Add subtle background for analysis values
+        const analysisText = `V:${voltage.toFixed(1)}V I:${current.toFixed(2)}A`;
+        const analysisMetrics = ctx.measureText(analysisText);
+        const analysisWidth = analysisMetrics.width + 4;
+        
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+        ctx.fillRect(
+          position.x - analysisWidth/2,
+          position.y - height/2 - 16,
+          analysisWidth,
+          12
         );
+        
+        ctx.fillStyle = '#374151';
         ctx.fillText(
-          `${(current * 1000).toFixed(0)}mA`,
-          position.x + 15,
-          position.y + height/2 + 20
+          analysisText,
+          position.x,
+          position.y - height/2 - 8
+        );
+        
+        // Power value with background
+        const powerText = `P:${(analysis.power[component.id] || 0).toFixed(1)}W`;
+        const powerMetrics = ctx.measureText(powerText);
+        const powerWidth = powerMetrics.width + 4;
+        
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+        ctx.fillRect(
+          position.x - powerWidth/2,
+          position.y - height/2 - 2,
+          powerWidth,
+          12
+        );
+        
+        ctx.fillStyle = '#374151';
+        ctx.fillText(
+          powerText,
+          position.x,
+          position.y - height/2 + 2
         );
       }
     }
@@ -266,282 +326,168 @@ export const CircuitCanvas: React.FC<CircuitCanvasProps> = ({
 
   // Draw component symbol
   const drawComponentSymbol = (ctx: CanvasRenderingContext2D, component: Component, position: Position) => {
-    const { type } = component;
-    
     ctx.strokeStyle = '#374151';
+    ctx.fillStyle = '#374151';
     ctx.lineWidth = 2;
 
-    switch (type) {
-      case 'resistor':
-        // Draw resistor zigzag
+    switch (component.type) {
+      case 'battery':
+        // Battery symbol
         ctx.beginPath();
         ctx.moveTo(position.x - 15, position.y);
-        ctx.lineTo(position.x - 8, position.y - 8);
-        ctx.lineTo(position.x, position.y + 8);
-        ctx.lineTo(position.x + 8, position.y - 8);
+        ctx.lineTo(position.x - 10, position.y);
+        ctx.moveTo(position.x + 10, position.y);
         ctx.lineTo(position.x + 15, position.y);
         ctx.stroke();
+        ctx.fillRect(position.x - 10, position.y - 8, 20, 16);
         break;
 
-      case 'battery':
-        // Draw battery symbol
+      case 'resistor':
+        // Resistor zigzag
         ctx.beginPath();
         ctx.moveTo(position.x - 15, position.y);
-        ctx.lineTo(position.x - 12, position.y);
-        ctx.moveTo(position.x - 12, position.y - 12);
-        ctx.lineTo(position.x - 12, position.y + 12);
-        ctx.moveTo(position.x - 8, position.y - 8);
-        ctx.lineTo(position.x - 8, position.y + 8);
-        ctx.moveTo(position.x - 4, position.y - 4);
-        ctx.lineTo(position.x - 4, position.y + 4);
-        ctx.moveTo(position.x + 15, position.y);
-        ctx.lineTo(position.x + 12, position.y);
-        ctx.stroke();
-        break;
-
-      case 'led':
-        // Draw LED symbol
-        ctx.beginPath();
-        ctx.moveTo(position.x - 15, position.y);
-        ctx.lineTo(position.x - 5, position.y);
-        ctx.moveTo(position.x - 5, position.y - 8);
-        ctx.lineTo(position.x - 5, position.y + 8);
-        ctx.moveTo(position.x - 5, position.y - 8);
-        ctx.lineTo(position.x + 5, position.y);
-        ctx.lineTo(position.x - 5, position.y + 8);
-        ctx.moveTo(position.x + 5, position.y);
+        ctx.lineTo(position.x - 10, position.y - 5);
+        ctx.lineTo(position.x - 5, position.y + 5);
+        ctx.lineTo(position.x, position.y - 5);
+        ctx.lineTo(position.x + 5, position.y + 5);
+        ctx.lineTo(position.x + 10, position.y - 5);
         ctx.lineTo(position.x + 15, position.y);
         ctx.stroke();
         break;
 
       case 'capacitor':
-        // Draw capacitor symbol
+        // Capacitor parallel lines
         ctx.beginPath();
         ctx.moveTo(position.x - 15, position.y);
         ctx.lineTo(position.x - 5, position.y);
-        ctx.moveTo(position.x - 5, position.y - 8);
-        ctx.lineTo(position.x - 5, position.y + 8);
-        ctx.moveTo(position.x + 5, position.y - 8);
-        ctx.lineTo(position.x + 5, position.y + 8);
         ctx.moveTo(position.x + 5, position.y);
         ctx.lineTo(position.x + 15, position.y);
         ctx.stroke();
-        break;
-
-      case 'ground':
-        // Draw ground symbol
-        ctx.beginPath();
-        ctx.moveTo(position.x, position.y - 15);
-        ctx.lineTo(position.x, position.y - 5);
-        ctx.moveTo(position.x - 8, position.y - 5);
-        ctx.lineTo(position.x + 8, position.y - 5);
-        ctx.moveTo(position.x - 4, position.y);
-        ctx.lineTo(position.x + 4, position.y);
-        ctx.moveTo(position.x - 2, position.y + 5);
-        ctx.lineTo(position.x + 2, position.y + 5);
-        ctx.stroke();
-        break;
-
-      case 'transformer':
-        // Draw transformer symbol with + and - terminals
-        ctx.beginPath();
-        ctx.moveTo(position.x - 15, position.y - 8);
-        ctx.lineTo(position.x - 15, position.y + 8);
-        ctx.moveTo(position.x - 12, position.y - 8);
-        ctx.lineTo(position.x - 12, position.y + 8);
-        ctx.moveTo(position.x + 12, position.y - 8);
-        ctx.lineTo(position.x + 12, position.y + 8);
-        ctx.moveTo(position.x + 15, position.y - 8);
-        ctx.lineTo(position.x + 15, position.y + 8);
-        ctx.stroke();
-        // Draw + and - terminals
-        ctx.fillStyle = '#374151';
-        ctx.font = '8px Arial';
-        ctx.textAlign = 'center';
-        ctx.fillText('+', position.x - 13, position.y - 10);
-        ctx.fillText('-', position.x + 13, position.y - 10);
-        ctx.fillText('+', position.x - 13, position.y + 12);
-        ctx.fillText('-', position.x + 13, position.y + 12);
+        ctx.fillRect(position.x - 5, position.y - 8, 2, 16);
+        ctx.fillRect(position.x + 3, position.y - 8, 2, 16);
         break;
 
       case 'inductor':
-        // Draw inductor symbol
+        // Inductor coils
+        ctx.beginPath();
+        ctx.arc(position.x - 5, position.y, 5, 0, Math.PI);
+        ctx.arc(position.x, position.y, 5, Math.PI, 0);
+        ctx.arc(position.x + 5, position.y, 5, 0, Math.PI);
+        ctx.stroke();
         ctx.beginPath();
         ctx.moveTo(position.x - 15, position.y);
         ctx.lineTo(position.x - 10, position.y);
-        for (let i = -10; i <= 10; i += 5) {
-          ctx.moveTo(position.x + i, position.y - 5);
-          ctx.lineTo(position.x + i, position.y + 5);
-        }
         ctx.moveTo(position.x + 10, position.y);
         ctx.lineTo(position.x + 15, position.y);
         ctx.stroke();
         break;
 
-      case 'diode':
-        // Draw diode symbol
+      case 'led':
+        // LED with arrow
         ctx.beginPath();
         ctx.moveTo(position.x - 15, position.y);
         ctx.lineTo(position.x - 5, position.y);
-        ctx.moveTo(position.x - 5, position.y - 8);
-        ctx.lineTo(position.x - 5, position.y + 8);
-        ctx.moveTo(position.x - 5, position.y - 8);
-        ctx.lineTo(position.x + 5, position.y);
-        ctx.lineTo(position.x - 5, position.y + 8);
         ctx.moveTo(position.x + 5, position.y);
+        ctx.lineTo(position.x + 15, position.y);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(position.x, position.y, 6, 0, 2 * Math.PI);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(position.x - 2, position.y - 3);
+        ctx.lineTo(position.x + 2, position.y);
+        ctx.lineTo(position.x - 2, position.y + 3);
+        ctx.fill();
+        break;
+
+      case 'diode':
+        // Diode triangle
+        ctx.beginPath();
+        ctx.moveTo(position.x - 10, position.y);
+        ctx.lineTo(position.x, position.y - 8);
+        ctx.lineTo(position.x, position.y + 8);
+        ctx.closePath();
+        ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(position.x - 15, position.y);
+        ctx.lineTo(position.x - 10, position.y);
+        ctx.moveTo(position.x, position.y);
         ctx.lineTo(position.x + 15, position.y);
         ctx.stroke();
         break;
 
-      case 'fan':
-        // Draw fan symbol
+      case 'switch':
+        // Switch symbol
         ctx.beginPath();
-        ctx.arc(position.x, position.y, 8, 0, 2 * Math.PI);
+        ctx.moveTo(position.x - 15, position.y);
+        ctx.lineTo(position.x - 5, position.y);
+        ctx.moveTo(position.x + 5, position.y);
+        ctx.lineTo(position.x + 15, position.y);
         ctx.stroke();
         ctx.beginPath();
-        ctx.moveTo(position.x - 6, position.y - 6);
-        ctx.lineTo(position.x + 6, position.y + 6);
-        ctx.moveTo(position.x + 6, position.y - 6);
-        ctx.lineTo(position.x - 6, position.y + 6);
-        ctx.stroke();
-        break;
-
-      case 'light':
-        // Draw light bulb symbol
+        ctx.arc(position.x, position.y - 5, 3, 0, 2 * Math.PI);
+        ctx.fill();
         ctx.beginPath();
-        ctx.arc(position.x, position.y, 8, 0, 2 * Math.PI);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.moveTo(position.x, position.y - 8);
-        ctx.lineTo(position.x, position.y - 15);
-        ctx.moveTo(position.x - 3, position.y - 8);
-        ctx.lineTo(position.x + 3, position.y - 8);
+        ctx.moveTo(position.x - 5, position.y);
+        ctx.lineTo(position.x, position.y - 5);
         ctx.stroke();
         break;
 
-      case 'tv':
-        // Draw TV symbol
-        ctx.strokeRect(position.x - 10, position.y - 6, 20, 12);
+      case 'ground':
+        // Ground symbol
         ctx.beginPath();
-        ctx.moveTo(position.x - 8, position.y - 4);
-        ctx.lineTo(position.x + 8, position.y - 4);
-        ctx.moveTo(position.x - 8, position.y);
-        ctx.lineTo(position.x + 8, position.y);
-        ctx.moveTo(position.x - 8, position.y + 4);
-        ctx.lineTo(position.x + 8, position.y + 4);
+        ctx.moveTo(position.x, position.y);
+        ctx.lineTo(position.x, position.y + 10);
+        ctx.lineTo(position.x - 8, position.y + 10);
+        ctx.lineTo(position.x + 8, position.y + 10);
+        ctx.lineTo(position.x - 4, position.y + 14);
+        ctx.lineTo(position.x + 4, position.y + 14);
         ctx.stroke();
-        break;
-
-      case 'ac':
-        // Draw AC symbol
-        ctx.strokeRect(position.x - 10, position.y - 6, 20, 12);
-        ctx.beginPath();
-        ctx.moveTo(position.x - 8, position.y - 2);
-        ctx.lineTo(position.x + 8, position.y - 2);
-        ctx.moveTo(position.x - 8, position.y + 2);
-        ctx.lineTo(position.x + 8, position.y + 2);
-        ctx.stroke();
-        break;
-
-      case 'motor':
-        // Draw motor symbol
-        ctx.beginPath();
-        ctx.arc(position.x, position.y, 8, 0, 2 * Math.PI);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.moveTo(position.x - 6, position.y);
-        ctx.lineTo(position.x + 6, position.y);
-        ctx.moveTo(position.x, position.y - 6);
-        ctx.lineTo(position.x, position.y + 6);
-        ctx.stroke();
-        break;
-
-      case 'heater':
-        // Draw heater symbol
-        ctx.strokeRect(position.x - 10, position.y - 6, 20, 12);
-        ctx.beginPath();
-        for (let i = -8; i <= 8; i += 4) {
-          ctx.moveTo(position.x + i, position.y - 4);
-          ctx.lineTo(position.x + i, position.y + 4);
-        }
-        ctx.stroke();
-        break;
-
-      case 'voltmeter':
-        // Draw voltmeter symbol
-        ctx.strokeRect(position.x - 10, position.y - 6, 20, 12);
-        ctx.fillStyle = '#374151';
-        ctx.font = '8px Arial';
-        ctx.textAlign = 'center';
-        ctx.fillText('V', position.x, position.y + 2);
-        break;
-
-      case 'ammeter':
-        // Draw ammeter symbol
-        ctx.strokeRect(position.x - 10, position.y - 6, 20, 12);
-        ctx.fillStyle = '#374151';
-        ctx.font = '8px Arial';
-        ctx.textAlign = 'center';
-        ctx.fillText('A', position.x, position.y + 2);
-        break;
-
-      case 'wattmeter':
-        // Draw wattmeter symbol
-        ctx.strokeRect(position.x - 10, position.y - 6, 20, 12);
-        ctx.fillStyle = '#374151';
-        ctx.font = '8px Arial';
-        ctx.textAlign = 'center';
-        ctx.fillText('W', position.x, position.y + 2);
         break;
 
       default:
-        // Default rectangle
-        ctx.strokeRect(position.x - 12, position.y - 8, 24, 16);
-        break;
+        // Default: circle with component type initial
+        ctx.beginPath();
+        ctx.arc(position.x, position.y, 12, 0, 2 * Math.PI);
+        ctx.stroke();
+        ctx.font = 'bold 10px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(
+          component.type.charAt(0).toUpperCase(),
+          position.x,
+          position.y
+        );
     }
   };
 
-  // Draw port circles around components
+  // Draw port circles
   const drawPortCircles = (ctx: CanvasRenderingContext2D, component: Component) => {
     const { position, ports } = component;
     const portRadius = 3;
-    
-    ctx.fillStyle = '#6B7280';
-    ctx.strokeStyle = '#374151';
-    ctx.lineWidth = 1;
-    
-    // Draw ports based on component type and port count
-    if (ports >= 2) {
-      // Two ports - left and right
+
+    for (let i = 0; i < ports; i++) {
+      const angle = (2 * Math.PI * i) / ports;
+      const portX = position.x + Math.cos(angle) * (COMPONENT_SIZE / 2 + 5);
+      const portY = position.y + Math.sin(angle) * (COMPONENT_SIZE / 2 + 5);
+
+      ctx.fillStyle = '#6b7280';
       ctx.beginPath();
-      ctx.arc(position.x - 20, position.y, portRadius, 0, 2 * Math.PI);
+      ctx.arc(portX, portY, portRadius, 0, 2 * Math.PI);
       ctx.fill();
-      ctx.stroke();
-      
-      ctx.beginPath();
-      ctx.arc(position.x + 20, position.y, portRadius, 0, 2 * Math.PI);
-      ctx.fill();
-      ctx.stroke();
-    }
-    
-    if (ports >= 3) {
-      // Three ports - add top port
-      ctx.beginPath();
-      ctx.arc(position.x, position.y - 20, portRadius, 0, 2 * Math.PI);
-      ctx.fill();
-      ctx.stroke();
-    }
-    
-    if (ports >= 4) {
-      // Four ports - add bottom port
-      ctx.beginPath();
-      ctx.arc(position.x, position.y + 20, portRadius, 0, 2 * Math.PI);
-      ctx.fill();
-      ctx.stroke();
     }
   };
 
-  // Draw connection preview
+  // Find component at position
+  const findComponentAt = (x: number, y: number): Component | null => {
+    return circuit.components.find(component => {
+      const dx = x - component.position.x;
+      const dy = y - component.position.y;
+      return Math.sqrt(dx * dx + dy * dy) < COMPONENT_SIZE / 2;
+    }) || null;
+  };
+
+
   const drawConnectionPreview = (ctx: CanvasRenderingContext2D) => {
     if (!connectionStart || !connectionPreview) return;
 
@@ -558,149 +504,111 @@ export const CircuitCanvas: React.FC<CircuitCanvasProps> = ({
     ctx.setLineDash([]);
   };
 
-  // Draw analysis overlays
   const drawAnalysisOverlays = (ctx: CanvasRenderingContext2D) => {
     if (!analysis) return;
 
-    // Draw voltage indicators
-    Object.entries(analysis.voltages).forEach(([componentId, voltage]) => {
-      const component = circuit.components.find(c => c.id === componentId);
-      if (component) {
-        ctx.fillStyle = voltage > 0 ? '#10b981' : '#ef4444';
-        ctx.font = 'bold 9px Arial';
-        ctx.textAlign = 'center';
-        ctx.fillText(
-          `${voltage.toFixed(1)}V`,
-          component.position.x,
-          component.position.y - COMPONENT_SIZE/2 - 8
-        );
-      }
+    // Highlight components with issues
+    analysis.issues.forEach(issue => {
+      if (!issue.componentId) return;
+      const component = circuit.components.find(c => c.id === issue.componentId);
+      if (!component) return;
+
+      const { position } = component;
+
+      ctx.save();
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = issue.severity === 'critical'
+        ? '#dc2626'
+        : issue.severity === 'high'
+          ? '#f97316'
+          : '#facc15';
+      ctx.setLineDash([6, 4]);
+      ctx.beginPath();
+      ctx.rect(
+        position.x - COMPONENT_SIZE / 2 - 6,
+        position.y - COMPONENT_SIZE / 2 - 6,
+        COMPONENT_SIZE + 12,
+        COMPONENT_SIZE + 12
+      );
+      ctx.stroke();
+      ctx.restore();
+
+      ctx.save();
+      const badgeText = issue.severity.toUpperCase();
+      ctx.font = 'bold 9px Arial';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = issue.severity === 'critical'
+        ? 'rgba(220, 38, 38, 0.9)'
+        : issue.severity === 'high'
+          ? 'rgba(249, 115, 22, 0.9)'
+          : 'rgba(250, 204, 21, 0.9)';
+      ctx.fillRect(position.x - 40, position.y - COMPONENT_SIZE / 2 - 28, 80, 16);
+      ctx.fillStyle = '#fff';
+      ctx.fillText(badgeText, position.x, position.y - COMPONENT_SIZE / 2 - 20);
+      ctx.restore();
     });
   };
 
-  // Convert screen coordinates to canvas coordinates
+  // Screen to canvas coordinate conversion
   const screenToCanvas = (screenX: number, screenY: number): Position => {
-    const canvas = canvasRef.current;
-    if (!canvas) return { x: 0, y: 0 };
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect) return { x: 0, y: 0 };
 
-    const rect = canvas.getBoundingClientRect();
     return {
       x: (screenX - rect.left - panOffset.x) / zoom,
       y: (screenY - rect.top - panOffset.y) / zoom
     };
   };
 
-  // Find component at position
-  const findComponentAt = (x: number, y: number): Component | null => {
-    return circuit.components.find(component => {
-      const dx = x - component.position.x;
-      const dy = y - component.position.y;
-      return Math.abs(dx) <= COMPONENT_SIZE/2 && Math.abs(dy) <= COMPONENT_SIZE/2;
-    }) || null;
-  };
-
-  // Find connection at given position
-  const findConnectionAt = (x: number, y: number): Connection | null => {
-    for (const connection of circuit.connections) {
-      const fromComponent = circuit.components.find(c => c.id === connection.from);
-      const toComponent = circuit.components.find(c => c.id === connection.to);
-      
-      if (fromComponent && toComponent) {
-        const fromX = fromComponent.position.x;
-        const fromY = fromComponent.position.y;
-        const toX = toComponent.position.x;
-        const toY = toComponent.position.y;
-        
-        // Check if point is near the line connecting the components
-        const distance = distanceToLine(x, y, fromX, fromY, toX, toY);
-        if (distance < 10) { // 10 pixel tolerance
-          return connection;
-        }
-      }
-    }
-    return null;
-  };
-
-  // Calculate distance from point to line
-  const distanceToLine = (px: number, py: number, x1: number, y1: number, x2: number, y2: number): number => {
-    const A = px - x1;
-    const B = py - y1;
-    const C = x2 - x1;
-    const D = y2 - y1;
-
-    const dot = A * C + B * D;
-    const lenSq = C * C + D * D;
-    
-    if (lenSq === 0) return Math.sqrt(A * A + B * B);
-    
-    let param = dot / lenSq;
-    
-    let xx, yy;
-    if (param < 0) {
-      xx = x1;
-      yy = y1;
-    } else if (param > 1) {
-      xx = x2;
-      yy = y2;
-    } else {
-      xx = x1 + param * C;
-      yy = y1 + param * D;
-    }
-
-    const dx = px - xx;
-    const dy = py - yy;
-    return Math.sqrt(dx * dx + dy * dy);
-  };
-
-  // Handle mouse events
+  // Handle mouse down
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvasPos = screenToCanvas(e.clientX, e.clientY);
     const clickedComponent = findComponentAt(canvasPos.x, canvasPos.y);
 
     if (connectionMode) {
       if (clickedComponent) {
-        if (!connectionStart) {
-          setConnectionStart(clickedComponent.id);
-        } else if (connectionStart !== clickedComponent.id) {
-          // Create connection
-          const newConnection: Connection = {
-            id: `conn-${Date.now()}`,
-            from: connectionStart,
-            to: clickedComponent.id,
-            fromPort: 1,
-            toPort: 1
-          };
+        if (connectionStart) {
+          // Complete connection
+          if (connectionStart !== clickedComponent.id) {
+            const newConnection: Connection = {
+              id: `conn-${Date.now()}`,
+              from: connectionStart,
+              to: clickedComponent.id,
+              fromPort: 1,
+              toPort: 1
+            };
 
-          const updatedCircuit = {
-            ...circuit,
-            connections: [...circuit.connections, newConnection],
-            metadata: {
-              ...circuit.metadata,
-              updatedAt: new Date()
-            }
-          };
+            const updatedCircuit = {
+              ...circuit,
+              connections: [...circuit.connections, newConnection],
+              metadata: {
+                ...circuit.metadata,
+                updatedAt: new Date()
+              }
+            };
 
-          onCircuitUpdate(updatedCircuit);
+            onCircuitUpdate(updatedCircuit);
+          }
           setConnectionStart(null);
+          setConnectionPreview(null);
+        } else {
+          setConnectionStart(clickedComponent.id);
+          setConnectionPreview(canvasPos);
         }
-      } else {
-        setConnectionStart(null);
       }
+    } else if (clickedComponent) {
+      setSelectedComponent(clickedComponent.id);
+      setDraggedComponent(clickedComponent.id);
+      setDragOffset({
+        x: canvasPos.x - clickedComponent.position.x,
+        y: canvasPos.y - clickedComponent.position.y
+      });
+      setIsDragging(true);
     } else {
-      if (clickedComponent) {
-        setSelectedComponent(clickedComponent.id);
-        setDraggedComponent(clickedComponent.id);
-        setDragOffset({
-          x: canvasPos.x - clickedComponent.position.x,
-          y: canvasPos.y - clickedComponent.position.y
-        });
-        setIsDragging(true);
-      } else {
-        setSelectedComponent(null);
-        // Start panning
-        setIsPanning(true);
-        setPanStart({ x: e.clientX, y: e.clientY });
-      }
+      // Start panning
+      setIsPanning(true);
+      setPanStart({ x: e.clientX, y: e.clientY });
     }
   };
 
@@ -744,29 +652,116 @@ export const CircuitCanvas: React.FC<CircuitCanvasProps> = ({
     setIsPanning(false);
   };
 
-  // Handle double click to edit component or remove wire
+  // Handle double click to edit component (no wire disconnection)
   const handleDoubleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvasPos = screenToCanvas(e.clientX, e.clientY);
     const clickedComponent = findComponentAt(canvasPos.x, canvasPos.y);
-    const clickedConnection = findConnectionAt(canvasPos.x, canvasPos.y);
 
-    if (clickedConnection) {
-      // Remove wire/connection
-      const updatedCircuit = {
-        ...circuit,
-        connections: circuit.connections.filter(conn => conn.id !== clickedConnection.id),
-        metadata: {
-          ...circuit.metadata,
-          updatedAt: new Date()
-        }
-      };
-      onCircuitUpdate(updatedCircuit);
-    } else if (clickedComponent) {
-      // Edit component
+    if (clickedComponent) {
+      // Open edit modal for component
       setEditingComponent(clickedComponent.id);
       setEditValue(clickedComponent.value.toString());
       setEditProperty('value');
       setShowEditModal(true);
+    }
+  };
+
+  // Handle right click to show context menu
+  const handleContextMenu = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    e.preventDefault();
+    const canvasPos = screenToCanvas(e.clientX, e.clientY);
+    const clickedComponent = findComponentAt(canvasPos.x, canvasPos.y);
+
+    if (clickedComponent) {
+      setContextMenu({
+        x: e.clientX,
+        y: e.clientY,
+        componentId: clickedComponent.id
+      });
+    } else {
+      setContextMenu(null);
+    }
+  };
+
+  // Handle context menu actions
+  const handleContextMenuAction = (action: string) => {
+    if (!contextMenu) return;
+
+    const component = circuit.components.find(c => c.id === contextMenu.componentId);
+    if (!component) return;
+
+    switch (action) {
+      case 'edit':
+        setEditingComponent(component.id);
+        setEditValue(component.value.toString());
+        setEditProperty('value');
+        setShowEditModal(true);
+        setContextMenu(null);
+        break;
+
+      case 'disconnect':
+        // Disconnect all connections from this component
+        const updatedConnections = circuit.connections.filter(
+          conn => conn.from !== component.id && conn.to !== component.id
+        );
+        const updatedCircuit = {
+          ...circuit,
+          connections: updatedConnections,
+          metadata: {
+            ...circuit.metadata,
+            updatedAt: new Date()
+          }
+        };
+        onCircuitUpdate(updatedCircuit);
+        setContextMenu(null);
+        break;
+
+      case 'delete':
+        // Delete component and all its connections
+        const filteredConnections = circuit.connections.filter(
+          conn => conn.from !== component.id && conn.to !== component.id
+        );
+        const filteredComponents = circuit.components.filter(c => c.id !== component.id);
+        const deletedCircuit = {
+          ...circuit,
+          components: filteredComponents,
+          connections: filteredConnections,
+          metadata: {
+            ...circuit.metadata,
+            updatedAt: new Date()
+          }
+        };
+        onCircuitUpdate(deletedCircuit);
+        setContextMenu(null);
+        break;
+
+      case 'duplicate':
+        // Duplicate component
+        const newComponent = {
+          ...component,
+          id: `${component.type}-${Date.now()}`,
+          position: {
+            x: component.position.x + 50,
+            y: component.position.y + 50
+          }
+        };
+        const duplicatedCircuit = {
+          ...circuit,
+          components: [...circuit.components, newComponent],
+          metadata: {
+            ...circuit.metadata,
+            updatedAt: new Date()
+          }
+        };
+        onCircuitUpdate(duplicatedCircuit);
+        setContextMenu(null);
+        break;
+
+      case 'details':
+        // Show component details (could open a details modal)
+        alert(`Component: ${component.type}\nValue: ${component.value} ${component.unit}\nDescription: ${component.properties.description || 'N/A'}`);
+        setContextMenu(null);
+        break;
     }
   };
 
@@ -899,74 +894,59 @@ export const CircuitCanvas: React.FC<CircuitCanvasProps> = ({
     }
   };
 
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'copy';
-  };
-
-  // Delete selected component
-  const deleteSelectedComponent = () => {
-    if (!selectedComponent) return;
-
-    const updatedCircuit = {
-      ...circuit,
-      components: circuit.components.filter(c => c.id !== selectedComponent),
-      connections: circuit.connections.filter(
-        conn => conn.from !== selectedComponent && conn.to !== selectedComponent
-      ),
-      metadata: {
-        ...circuit.metadata,
-        updatedAt: new Date()
-      }
-    };
-
-    onCircuitUpdate(updatedCircuit);
-    setSelectedComponent(null);
-  };
-
   return (
     <div className="h-full flex flex-col bg-white">
-      {/* Canvas Header */}
-      <div className="flex justify-between items-center p-4 border-b flex-shrink-0">
-        <div className="flex items-center space-x-4">
-          <h2 className="text-lg font-semibold text-gray-900">Circuit Canvas</h2>
-          {isAnalyzing && (
-            <div className="flex items-center text-blue-600">
-              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600 mr-2"></div>
-              Analyzing...
-            </div>
-          )}
-        </div>
-        
+      {/* Toolbar */}
+      <div className="flex-shrink-0 bg-gray-50 border-b border-gray-200 px-4 py-2 flex items-center justify-between">
         <div className="flex items-center space-x-2">
-          {/* Mode buttons */}
           <button
             onClick={() => setConnectionMode(!connectionMode)}
-            className={`px-3 py-1 text-sm rounded flex items-center ${
-              connectionMode ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-700'
+            className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+              connectionMode
+                ? 'bg-blue-600 text-white'
+                : 'bg-white text-gray-700 hover:bg-gray-100'
             }`}
           >
-            <Link className="h-3 w-3 mr-1" />
-            Connect
+            <Link className="h-4 w-4 inline-block mr-1" />
+            {connectionMode ? 'Connecting...' : 'Connect'}
           </button>
-          
           <button
             onClick={() => setShowGrid(!showGrid)}
-            className={`px-3 py-1 text-sm rounded ${
-              showGrid ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-700'
-            }`}
+            className="px-3 py-1.5 rounded-md text-sm font-medium bg-white text-gray-700 hover:bg-gray-100 transition-colors"
           >
-            Grid
+            {showGrid ? 'Hide Grid' : 'Show Grid'}
           </button>
-          
-          <label className="px-3 py-1 bg-green-100 text-green-700 text-sm rounded cursor-pointer hover:bg-green-200">
-            Upload Image
-            <input
-              type="file"
-              accept="image/*"
-              onChange={handleFileUpload}
-              className="hidden"
-            />
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={() => setZoom(zoom * 0.9)}
+              className="px-2 py-1 rounded-md text-sm bg-white text-gray-700 hover:bg-gray-100"
+            >
+              -
+            </button>
+            <span className="text-sm text-gray-600 min-w-[60px] text-center">
+              {Math.round(zoom * 100)}%
+            </span>
+            <button
+              onClick={() => setZoom(zoom * 1.1)}
+              className="px-2 py-1 rounded-md text-sm bg-white text-gray-700 hover:bg-gray-100"
+            >
+              +
+            </button>
+          </div>
+        </div>
+        <div className="flex items-center space-x-2">
+          <input
+            type="file"
+            accept="image/*"
+            onChange={handleFileUpload}
+            className="hidden"
+            id="image-upload"
+          />
+          <label
+            htmlFor="image-upload"
+            className="px-3 py-1.5 rounded-md text-sm font-medium bg-white text-gray-700 hover:bg-gray-100 transition-colors cursor-pointer"
+          >
+            Upload Circuit Image
           </label>
         </div>
       </div>
@@ -975,32 +955,97 @@ export const CircuitCanvas: React.FC<CircuitCanvasProps> = ({
       <div className="flex-1 relative overflow-hidden bg-gray-50">
         <div
           ref={containerRef}
-          className="w-full h-full bg-gray-50 relative overflow-auto"
+          className="absolute inset-0 overflow-auto"
           onDrop={handleDrop}
-          onDragOver={handleDragOver}
-          onMouseDown={handleMouseDown as any}
-          onMouseMove={handleMouseMove as any}
-          onMouseUp={handleMouseUp as any}
-          onWheel={handleWheel as any}
+          onDragOver={(e) => e.preventDefault()}
         >
           <canvas
             ref={canvasRef}
             className="block cursor-crosshair bg-white border border-gray-200 shadow-sm"
             style={{ minWidth: CANVAS_WIDTH, minHeight: CANVAS_HEIGHT }}
             onDoubleClick={handleDoubleClick}
-          />
+            onContextMenu={handleContextMenu}
+            onMouseDown={handleMouseDown}
+            onMouseMove={handleMouseMove}
+            onMouseUp={handleMouseUp}
+            onWheel={handleWheel as any}
+          >
+          </canvas>
           
           {/* Instructions overlay */}
           <div className="absolute top-4 left-4 bg-white bg-opacity-90 p-3 rounded-lg shadow-sm text-sm text-gray-600">
             <div className="space-y-1">
               <div><strong>Drag:</strong> Move components</div>
-              <div><strong>Double-click:</strong> Edit values</div>
+              <div><strong>Double-click:</strong> Edit component</div>
+              <div><strong>Right-click:</strong> Component menu</div>
               <div><strong>Connect mode:</strong> Link components</div>
               <div><strong>Wheel:</strong> Zoom in/out</div>
-              <div><strong>Right-click:</strong> Pan canvas</div>
             </div>
           </div>
+
+          {isAnalyzing && (
+            <div className="absolute inset-0 bg-white/70 flex items-center justify-center z-20 pointer-events-none">
+              <div className="flex items-center space-x-2 text-gray-700">
+                <div className="h-5 w-5 border-2 border-gray-400 border-t-transparent rounded-full animate-spin"></div>
+                <span className="font-medium">Analyzing circuit...</span>
+              </div>
+            </div>
+          )}
         </div>
+
+        {/* Context Menu */}
+        {contextMenu && (
+          <div
+            className="fixed bg-white rounded-lg shadow-xl border border-gray-200 py-2 z-50 min-w-[180px]"
+            style={{ left: contextMenu.x, top: contextMenu.y }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={() => handleContextMenuAction('edit')}
+              className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center space-x-2"
+            >
+              <span>✏️</span>
+              <span>Edit Properties</span>
+            </button>
+            <button
+              onClick={() => handleContextMenuAction('disconnect')}
+              className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center space-x-2"
+            >
+              <span>🔌</span>
+              <span>Disconnect All</span>
+            </button>
+            <button
+              onClick={() => handleContextMenuAction('duplicate')}
+              className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center space-x-2"
+            >
+              <span>📋</span>
+              <span>Duplicate</span>
+            </button>
+            <button
+              onClick={() => handleContextMenuAction('details')}
+              className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center space-x-2"
+            >
+              <span>ℹ️</span>
+              <span>View Details</span>
+            </button>
+            <div className="border-t border-gray-200 my-1"></div>
+            <button
+              onClick={() => handleContextMenuAction('delete')}
+              className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center space-x-2"
+            >
+              <span>🗑️</span>
+              <span>Delete Component</span>
+            </button>
+          </div>
+        )}
+
+        {/* Click outside to close context menu */}
+        {contextMenu && (
+          <div
+            className="fixed inset-0 z-40"
+            onClick={() => setContextMenu(null)}
+          />
+        )}
         
         {/* Component Editing Modal */}
         {showEditModal && editingComponent && (
@@ -1032,36 +1077,42 @@ export const CircuitCanvas: React.FC<CircuitCanvasProps> = ({
                       <label className="block text-sm font-medium text-gray-700 mb-1">
                         Component Type
                       </label>
-                      <div className="text-sm text-gray-600 bg-gray-100 p-2 rounded">
-                        {component.type.toUpperCase()} - {component.properties.description}
-                      </div>
+                      <input
+                        type="text"
+                        value={component.type}
+                        disabled
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50 text-gray-500"
+                      />
                     </div>
 
-                    {/* Basic Value */}
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
                         Value
                       </label>
-                      <div className="flex space-x-2">
-                        <input
-                          type="number"
-                          value={editProperty === 'value' ? editValue : component.value.toString()}
-                          onChange={(e) => {
-                            setEditProperty('value');
-                            setEditValue(e.target.value);
-                          }}
-                          className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        />
-                        <input
-                          type="text"
-                          value={component.unit}
-                          onChange={(e) => {
-                            setEditProperty('unit');
-                            setEditValue(e.target.value);
-                          }}
-                          className="w-20 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        />
-                      </div>
+                      <input
+                        type="number"
+                        value={editProperty === 'value' ? editValue : component.value.toString()}
+                        onChange={(e) => {
+                          setEditProperty('value');
+                          setEditValue(e.target.value);
+                        }}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Unit
+                      </label>
+                      <input
+                        type="text"
+                        value={editProperty === 'unit' ? editValue : component.unit}
+                        onChange={(e) => {
+                          setEditProperty('unit');
+                          setEditValue(e.target.value);
+                        }}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
                     </div>
 
                     {/* Battery-specific fields */}
@@ -1072,7 +1123,7 @@ export const CircuitCanvas: React.FC<CircuitCanvasProps> = ({
                             Battery Type
                           </label>
                           <select
-                            value={component.properties.batteryType || 'DC'}
+                            value={editProperty === 'batteryType' ? editValue : (component.properties.batteryType || 'DC')}
                             onChange={(e) => {
                               setEditProperty('batteryType');
                               setEditValue(e.target.value);
@@ -1083,22 +1134,20 @@ export const CircuitCanvas: React.FC<CircuitCanvasProps> = ({
                             <option value="AC">AC</option>
                           </select>
                         </div>
-                        {component.properties.batteryType === 'AC' && (
-                          <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">
-                              Frequency (Hz)
-                            </label>
-                            <input
-                              type="number"
-                              value={editProperty === 'frequency' ? editValue : (component.properties.frequency || 60).toString()}
-                              onChange={(e) => {
-                                setEditProperty('frequency');
-                                setEditValue(e.target.value);
-                              }}
-                              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            />
-                          </div>
-                        )}
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Frequency (Hz)
+                          </label>
+                          <input
+                            type="number"
+                            value={editProperty === 'frequency' ? editValue : (component.properties.frequency || 0).toString()}
+                            onChange={(e) => {
+                              setEditProperty('frequency');
+                              setEditValue(e.target.value);
+                            }}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                        </div>
                       </>
                     )}
 
@@ -1128,8 +1177,7 @@ export const CircuitCanvas: React.FC<CircuitCanvasProps> = ({
                         </label>
                         <input
                           type="number"
-                          step="0.1"
-                          value={editProperty === 'forwardVoltage' ? editValue : (component.properties.forwardVoltage || 0.7).toString()}
+                          value={editProperty === 'forwardVoltage' ? editValue : (component.properties.forwardVoltage || 0).toString()}
                           onChange={(e) => {
                             setEditProperty('forwardVoltage');
                             setEditValue(e.target.value);
@@ -1140,7 +1188,7 @@ export const CircuitCanvas: React.FC<CircuitCanvasProps> = ({
                     )}
 
                     {/* Appliance-specific fields */}
-                    {['fan', 'light', 'tv', 'ac', 'motor', 'heater'].includes(component.type) && (
+                    {['fan', 'light', 'tv', 'ac', 'heater', 'motor'].includes(component.type) && (
                       <>
                         <div>
                           <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -1162,7 +1210,7 @@ export const CircuitCanvas: React.FC<CircuitCanvasProps> = ({
                           </label>
                           <input
                             type="number"
-                            value={editProperty === 'operatingVoltage' ? editValue : (component.properties.operatingVoltage || 120).toString()}
+                            value={editProperty === 'operatingVoltage' ? editValue : (component.properties.operatingVoltage || 230).toString()}
                             onChange={(e) => {
                               setEditProperty('operatingVoltage');
                               setEditValue(e.target.value);
@@ -1176,7 +1224,6 @@ export const CircuitCanvas: React.FC<CircuitCanvasProps> = ({
                           </label>
                           <input
                             type="number"
-                            step="0.1"
                             value={editProperty === 'operatingCurrent' ? editValue : (component.properties.operatingCurrent || 0).toString()}
                             onChange={(e) => {
                               setEditProperty('operatingCurrent');
@@ -1191,8 +1238,6 @@ export const CircuitCanvas: React.FC<CircuitCanvasProps> = ({
                           </label>
                           <input
                             type="number"
-                            min="0"
-                            max="100"
                             value={editProperty === 'efficiency' ? editValue : (component.properties.efficiency || 0).toString()}
                             onChange={(e) => {
                               setEditProperty('efficiency');
@@ -1283,7 +1328,7 @@ export const CircuitCanvas: React.FC<CircuitCanvasProps> = ({
                           Motor Type
                         </label>
                         <select
-                          value={component.properties.motorType || 'induction'}
+                          value={editProperty === 'motorType' ? editValue : (component.properties.motorType || 'induction')}
                           onChange={(e) => {
                             setEditProperty('motorType');
                             setEditValue(e.target.value);
@@ -1297,43 +1342,22 @@ export const CircuitCanvas: React.FC<CircuitCanvasProps> = ({
                       </div>
                     )}
 
-                    {/* Action buttons */}
-                    <div className="flex justify-end space-x-3 pt-4 border-t">
+                    <div className="flex justify-end space-x-2 pt-4 border-t">
                       <button
                         onClick={() => {
                           setShowEditModal(false);
                           setEditingComponent(null);
                           setEditValue('');
                         }}
-                        className="px-4 py-2 text-gray-700 bg-gray-200 rounded-md hover:bg-gray-300 transition-colors"
+                        className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200 transition-colors"
                       >
                         Cancel
                       </button>
                       <button
-                        onClick={() => {
-                          // Delete component
-                          const updatedCircuit = {
-                            ...circuit,
-                            components: circuit.components.filter(c => c.id !== editingComponent),
-                            metadata: {
-                              ...circuit.metadata,
-                              updatedAt: new Date()
-                            }
-                          };
-                          onCircuitUpdate(updatedCircuit);
-                          setShowEditModal(false);
-                          setEditingComponent(null);
-                          setEditValue('');
-                        }}
-                        className="px-4 py-2 text-white bg-red-600 rounded-md hover:bg-red-700 transition-colors"
-                      >
-                        Delete
-                      </button>
-                      <button
                         onClick={handleValueEdit}
-                        className="px-4 py-2 text-white bg-blue-600 rounded-md hover:bg-blue-700 transition-colors"
+                        className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 transition-colors"
                       >
-                        Save Changes
+                        Save
                       </button>
                     </div>
                   </div>
@@ -1343,59 +1367,8 @@ export const CircuitCanvas: React.FC<CircuitCanvasProps> = ({
           </div>
         )}
       </div>
-
-      {/* Canvas Footer */}
-      <div className="flex justify-between items-center p-4 border-t bg-gray-50 flex-shrink-0">
-        <div className="text-sm text-gray-600">
-          Components: {circuit.components.length} | 
-          Connections: {circuit.connections.length} |
-          Zoom: {Math.round(zoom * 100)}%
-          {connectionMode && <span className="ml-2 text-orange-600">• Connection Mode</span>}
-        </div>
-        
-        <div className="flex items-center space-x-2">
-          {/* Component actions */}
-          {selectedComponent && (
-            <>
-              <button
-                onClick={() => {
-                  const component = circuit.components.find(c => c.id === selectedComponent);
-                  if (component) {
-                    setEditingComponent(component.id);
-                    setEditValue(component.value.toString());
-                  }
-                }}
-                className="px-2 py-1 text-sm bg-blue-200 text-blue-700 rounded hover:bg-blue-300 flex items-center"
-              >
-                <Edit3 className="h-3 w-3 mr-1" />
-                Edit
-              </button>
-              <button
-                onClick={deleteSelectedComponent}
-                className="px-2 py-1 text-sm bg-red-200 text-red-700 rounded hover:bg-red-300 flex items-center"
-              >
-                <Trash2 className="h-3 w-3 mr-1" />
-                Delete
-              </button>
-            </>
-          )}
-          
-          {/* Zoom controls */}
-          <button
-            onClick={() => setZoom(Math.max(0.1, zoom - 0.1))}
-            className="px-2 py-1 text-sm bg-gray-200 rounded hover:bg-gray-300"
-          >
-            -
-          </button>
-          <span className="text-sm text-gray-600">{Math.round(zoom * 100)}%</span>
-          <button
-            onClick={() => setZoom(Math.min(3, zoom + 0.1))}
-            className="px-2 py-1 text-sm bg-gray-200 rounded hover:bg-gray-300"
-          >
-            +
-          </button>
-        </div>
-      </div>
     </div>
   );
 };
+
+export default CircuitCanvas;

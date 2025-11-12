@@ -1,4 +1,18 @@
 #root {
+  height: 100vh;
+  width: 100vw;
+}
+
+/* Fullscreen pages should take full viewport */
+.fullscreen {
+  height: 100vh;
+  width: 100vw;
+  margin: 0;
+  padding: 0;
+}
+
+/* Only apply these styles to non-fullscreen pages */
+#root:not(.fullscreen) {
   max-width: 1280px;
   margin: 0 auto;
   padding: 2rem;
